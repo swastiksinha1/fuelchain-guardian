@@ -29,7 +29,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "typescript": "^5.3.3",
     "vite": "^5.1.4",
-    "eslint": "^8.57.0",
+    "eslint": "^10.8.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.60.0",
     "autoprefixer": "^10.4.18",
