@@ -7,8 +7,8 @@ pydantic-settings==2.14.1
 
 # Database
 asyncpg==0.31.0
-sqlalchemy[asyncio]==2.0.50
-alembic==1.18.4
+sqlalchemy[asyncio]==2.0.51
+alembic==1.18.5
 psycopg2-binary==2.9.9
 geoalchemy2==0.20.0
 
