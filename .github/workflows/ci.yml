@@ -1,0 +1,50 @@
+name: FuelChain Guardian — CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── Quick syntax check for Python ──────────────────────────────
+  lint-python:
+    name: Python Syntax Check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check Python syntax
+        run: |
+          find backend -name "*.py" -exec python -m py_compile {} \;
+          echo "✅ All Python files have valid syntax"
+
+  # ── Build check for React frontend ─────────────────────────────
+  lint-frontend:
+    name: Frontend Check
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:8000
+          VITE_WS_URL: ws://localhost:8002

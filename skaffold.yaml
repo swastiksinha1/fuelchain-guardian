@@ -1,0 +1,82 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: fuelchain-guardian
+
+# ── Build ─────────────────────────────────────────────────────────────────
+build:
+  local:
+    push: false
+    useBuildkit: true
+  artifacts:
+    - image: fuelchain/backend
+      context: backend
+      docker:
+        dockerfile: Dockerfile
+      sync:
+        # Hot-reload Python files without rebuilding
+        manual:
+          - src: "**/*.py"
+            dest: /app
+
+    - image: fuelchain/backend-nlp
+      context: backend
+      docker:
+        dockerfile: Dockerfile.nlp
+
+    - image: fuelchain/frontend
+      context: frontend
+      docker:
+        dockerfile: Dockerfile.dev
+      sync:
+        manual:
+          - src: "src/**/*.{ts,tsx,css}"
+            dest: /app/src
+
+# ── Deploy ────────────────────────────────────────────────────────────────
+deploy:
+  kubectl:
+    manifests:
+      - k8s/namespace.yaml
+      - k8s/configmap.yaml
+      - k8s/deployment-backend.yaml
+
+# ── Profiles ──────────────────────────────────────────────────────────────
+profiles:
+  # Local development — uses Docker Compose instead of K8s
+  - name: local
+    activation:
+      - command: dev
+    deploy:
+      docker:
+        useCompose: true
+        compose:
+          dockerComposePath: docker-compose.yml
+
+  # Production — push images to GHCR
+  - name: production
+    build:
+      local:
+        push: true
+      tagPolicy:
+        gitCommit:
+          prefix: "sha-"
+          ignoreChanges: false
+
+# ── Port Forwarding (local k8s) ───────────────────────────────────────────
+portForward:
+  - resourceType: service
+    resourceName: backend
+    namespace: fuelchain
+    port: 8000
+    localPort: 8000
+  - resourceType: service
+    resourceName: ws-gateway
+    namespace: fuelchain
+    port: 8002
+    localPort: 8002
+  - resourceType: service
+    resourceName: frontend
+    namespace: fuelchain
+    port: 3000
+    localPort: 3000

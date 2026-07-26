@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Panic alerts — readable by all authenticated users, write only by service account
+    match /panic_alerts/{city} {
+      allow read: if request.auth != null;
+      allow write: if false;  // Only backend service account can write
+    }
+
+    // Pump status — readable by all authenticated users
+    match /pump_status/{pumpId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Queue reports — authenticated users can write their own
+    match /queue_reports/{reportId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.density is int
+        && request.resource.data.density >= 1
+        && request.resource.data.density <= 4;
+      allow update, delete: if false;
+    }
+
+    // User preferences
+    match /user_prefs/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

@@ -1,0 +1,300 @@
+---
+# Backend API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: fuelchain
+  labels:
+    app: backend
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: backend
+          image: fuelchain/backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          command:
+            - gunicorn
+            - app.main:app
+            - -w
+            - "4"
+            - -k
+            - uvicorn.workers.UvicornWorker
+            - --bind
+            - "0.0.0.0:8000"
+            - --timeout
+            - "120"
+          envFrom:
+            - configMapRef:
+                name: fuelchain-config
+            - secretRef:
+                name: fuelchain-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: fuelchain
+  labels:
+    app: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
+
+---
+# AIS Ingestion Deployment (single replica — one producer)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ais-ingestion
+  namespace: fuelchain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ais-ingestion
+  template:
+    metadata:
+      labels:
+        app: ais-ingestion
+    spec:
+      containers:
+        - name: ais-ingestion
+          image: fuelchain/backend:latest
+          command: ["python", "-m", "ais_ingestion.producer"]
+          envFrom:
+            - configMapRef:
+                name: fuelchain-config
+            - secretRef:
+                name: fuelchain-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+---
+# Vessel Tracker (horizontally scalable via consumer group)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vessel-tracker
+  namespace: fuelchain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vessel-tracker
+  template:
+    metadata:
+      labels:
+        app: vessel-tracker
+    spec:
+      containers:
+        - name: vessel-tracker
+          image: fuelchain/backend:latest
+          command: ["python", "-m", "ais_ingestion.vessel_tracker"]
+          envFrom:
+            - configMapRef:
+                name: fuelchain-config
+            - secretRef:
+                name: fuelchain-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 800m
+              memory: 512Mi
+
+---
+# Anomaly Detector
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anomaly-detector
+  namespace: fuelchain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anomaly-detector
+  template:
+    metadata:
+      labels:
+        app: anomaly-detector
+    spec:
+      containers:
+        - name: anomaly-detector
+          image: fuelchain/backend:latest
+          command: ["python", "-m", "ais_ingestion.anomaly_detector"]
+          envFrom:
+            - configMapRef:
+                name: fuelchain-config
+            - secretRef:
+                name: fuelchain-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+
+---
+# WebSocket Gateway
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ws-gateway
+  namespace: fuelchain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ws-gateway
+  template:
+    metadata:
+      labels:
+        app: ws-gateway
+    spec:
+      containers:
+        - name: ws-gateway
+          image: fuelchain/backend:latest
+          command: ["uvicorn", "websocket_gateway.main:app", "--host", "0.0.0.0", "--port", "8002"]
+          ports:
+            - containerPort: 8002
+          envFrom:
+            - configMapRef:
+                name: fuelchain-config
+            - secretRef:
+                name: fuelchain-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ws-gateway
+  namespace: fuelchain
+spec:
+  selector:
+    app: ws-gateway
+  ports:
+    - port: 8002
+      targetPort: 8002
+  type: ClusterIP
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fuelchain-ingress
+  namespace: fuelchain
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "Upgrade";
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.fuelchain.dev
+        - ws.fuelchain.dev
+        - dashboard.fuelchain.dev
+      secretName: fuelchain-tls
+  rules:
+    - host: api.fuelchain.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+    - host: ws.fuelchain.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ws-gateway
+                port:
+                  number: 8002
+    - host: dashboard.fuelchain.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000

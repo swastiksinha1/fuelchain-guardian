@@ -1,0 +1,68 @@
+version: "3.9"
+# docker-compose.override.yml  — auto-loaded by docker compose in dev
+# Adds volume mounts for hot-reload and exposes extra ports for debugging
+
+services:
+  backend:
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app
+    volumes:
+      - ./backend:/app
+    environment:
+      LOG_LEVEL: DEBUG
+
+  panic-nlp:
+    command: >
+      uvicorn panic_nlp.service:app
+      --host 0.0.0.0
+      --port 8001
+      --reload
+    volumes:
+      - ./backend:/app
+
+  websocket-gateway:
+    command: >
+      uvicorn websocket_gateway.main:app
+      --host 0.0.0.0
+      --port 8002
+      --reload
+    volumes:
+      - ./backend:/app
+
+  ais-ingestion:
+    volumes:
+      - ./backend:/app
+
+  vessel-tracker:
+    volumes:
+      - ./backend:/app
+
+  anomaly-detector:
+    volumes:
+      - ./backend:/app
+
+  disruption-service:
+    volumes:
+      - ./backend:/app
+
+  inventory-simulator:
+    volumes:
+      - ./backend:/app
+    environment:
+      TICK_INTERVAL_SECONDS: "60"  # Faster ticks in dev (1 min instead of 30)
+
+  social-ingestion:
+    volumes:
+      - ./backend:/app
+
+  panic-aggregator:
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    environment:
+      CHOKIDAR_USEPOLLING: "true"  # Needed for Docker on Windows/macOS

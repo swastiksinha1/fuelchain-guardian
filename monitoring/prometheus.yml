@@ -1,0 +1,55 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'fuelchain-backend'
+    static_configs:
+      - targets: ['backend:8000']
+    metrics_path: /metrics
+
+  - job_name: 'fuelchain-panic-nlp'
+    static_configs:
+      - targets: ['panic-nlp:8001']
+    metrics_path: /metrics
+
+  - job_name: 'fuelchain-ws-gateway'
+    static_configs:
+      - targets: ['websocket-gateway:8002']
+    metrics_path: /metrics
+
+  - job_name: 'fuelchain-ais-producer'
+    static_configs:
+      - targets: ['ais-ingestion:9101']
+
+  - job_name: 'fuelchain-vessel-tracker'
+    static_configs:
+      - targets: ['vessel-tracker:9102']
+
+  - job_name: 'fuelchain-anomaly-detector'
+    static_configs:
+      - targets: ['anomaly-detector:9103']
+
+  - job_name: 'fuelchain-disruption'
+    static_configs:
+      - targets: ['disruption-service:9104']
+
+  - job_name: 'fuelchain-inventory'
+    static_configs:
+      - targets: ['inventory-simulator:9105']
+
+  - job_name: 'fuelchain-social'
+    static_configs:
+      - targets: ['social-ingestion:9106']
+
+  - job_name: 'fuelchain-panic-aggregator'
+    static_configs:
+      - targets: ['panic-aggregator:9107']
+
+  - job_name: 'redpanda'
+    static_configs:
+      - targets: ['redpanda:9090']
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

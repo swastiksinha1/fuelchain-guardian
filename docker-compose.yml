@@ -1,0 +1,407 @@
+version: "3.9"
+
+# ============================================================
+# FuelChain Guardian — Docker Compose (Local Development)
+# ============================================================
+# Run: docker compose up --build -d
+# Then: docker compose exec backend alembic upgrade head
+#       docker compose exec backend python -m scripts.init_kafka
+# ============================================================
+
+x-common-env: &common-env
+  DATABASE_URL: postgresql+asyncpg://fuelchain:secret@postgres:5432/fuelchain
+  REDIS_URL: redis://redis:6379/0
+  KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+  JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production-32-chars!!}
+  JWT_ALGORITHM: HS256
+  LOG_LEVEL: INFO
+
+services:
+
+  # ── Infrastructure ────────────────────────────────────────
+
+  postgres:
+    image: timescale/timescaledb-ha:pg15-latest
+    container_name: fuelchain-postgres
+    environment:
+      POSTGRES_USER: fuelchain
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: fuelchain
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/home/postgres/pgdata/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fuelchain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: fuelchain-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redpanda:
+    image: redpandadata/redpanda:v23.3.11
+    container_name: fuelchain-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=warn
+    ports:
+      - "19092:19092"
+      - "18081:18081"
+      - "18082:18082"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  redpanda-console:
+    image: redpandadata/console:v2.4.5
+    container_name: fuelchain-redpanda-console
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      KAFKA_BROKERS: redpanda:9092
+    volumes:
+      - ./scripts/redpanda-console-config.yaml:/tmp/config.yml
+
+  # ── Application Services ──────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      AIS_MODE: ${AIS_MODE:-simulator}
+      AISHUB_API_KEY: ${AISHUB_API_KEY:-}
+      SOCIAL_MODE: ${SOCIAL_MODE:-simulator}
+      TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN:-}
+      PAYMENT_MODE: ${PAYMENT_MODE:-mock}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+    volumes:
+      - ./backend:/app
+      - ./secrets:/app/secrets
+    command: >
+      gunicorn app.main:app
+      -w 4
+      -k uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8000
+      --timeout 120
+      --access-logfile -
+      --error-logfile -
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ais-ingestion:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-ais-ingestion
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      AIS_MODE: ${AIS_MODE:-simulator}
+      AISHUB_API_KEY: ${AISHUB_API_KEY:-}
+      SERVICE: ais_ingestion
+    command: python -m ais_ingestion.producer
+    restart: unless-stopped
+
+  vessel-tracker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-vessel-tracker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      SERVICE: vessel_tracker
+    command: python -m ais_ingestion.vessel_tracker
+    restart: unless-stopped
+
+  anomaly-detector:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-anomaly-detector
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      SERVICE: anomaly_detector
+    command: python -m ais_ingestion.anomaly_detector
+    restart: unless-stopped
+
+  disruption-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-disruption
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      SERVICE: disruption
+    command: python -m disruption.consumer
+    restart: unless-stopped
+
+  inventory-simulator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-inventory
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      SERVICE: inventory
+      TICK_INTERVAL_SECONDS: "1800"
+    command: python -m inventory.simulator
+    restart: unless-stopped
+
+  panic-nlp:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.nlp
+    container_name: fuelchain-panic-nlp
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    environment:
+      <<: *common-env
+      SOCIAL_MODE: ${SOCIAL_MODE:-simulator}
+      TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN:-}
+      SERVICE: panic_nlp
+      MODEL_PATH: /app/models/panic_classifier
+    volumes:
+      - ./backend:/app
+      - nlp_models:/app/models
+    command: python -m panic_nlp.service
+    restart: unless-stopped
+
+  social-ingestion:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-social-ingestion
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      SOCIAL_MODE: ${SOCIAL_MODE:-simulator}
+      TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN:-}
+      SERVICE: social_ingestion
+    command: python -m panic_nlp.social_producer
+    restart: unless-stopped
+
+  panic-aggregator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-panic-aggregator
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      NLP_SERVICE_URL: http://panic-nlp:8001
+      SERVICE: panic_aggregator
+      PANIC_THRESHOLD: "65"
+    command: python -m panic_nlp.aggregator
+    restart: unless-stopped
+
+  websocket-gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-ws-gateway
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8002:8002"
+    environment:
+      <<: *common-env
+      SERVICE: ws_gateway
+    command: uvicorn websocket_gateway.main:app --host 0.0.0.0 --port 8002 --reload
+    restart: unless-stopped
+
+  # ── Frontend ──────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: fuelchain-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8002
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
+  # ── Observability ─────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: fuelchain-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: fuelchain-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-worldmap-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: fuelchain-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@fuelchain.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+
+volumes:
+  postgres_data:
+  redpanda_data:
+  prometheus_data:
+  grafana_data:
+  nlp_models:
+
+  # ── Additional Services ───────────────────────────────────────────────
+
+  mock-omc:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-mock-omc
+    ports:
+      - "8003:8003"
+    environment:
+      <<: *common-env
+    command: uvicorn mock_omc:app --host 0.0.0.0 --port 8003 --reload
+    restart: unless-stopped
+
+  repayment-job:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-repayment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      SERVICE: repayment_job
+    command: python -m credit.repayment_job
+    restart: unless-stopped
+
+  firestore-sync:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fuelchain-firestore-sync
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      SERVICE: firestore_sync
+    volumes:
+      - ./secrets:/app/secrets
+    command: python -m firestore_sync.main
+    restart: unless-stopped

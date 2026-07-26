@@ -1,0 +1,46 @@
+version: 2
+updates:
+  # Python backend
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, python]
+    groups:
+      fastapi:
+        patterns: [fastapi, uvicorn, gunicorn, pydantic*]
+      kafka:
+        patterns: [aiokafka, confluent-kafka]
+      database:
+        patterns: [sqlalchemy, alembic, asyncpg, geoalchemy2]
+
+  # React frontend
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, javascript]
+
+  # Firebase functions
+  - package-ecosystem: npm
+    directory: /flutter/functions
+    schedule:
+      interval: weekly
+    labels: [dependencies, javascript]
+
+  # Flutter
+  - package-ecosystem: pub
+    directory: /flutter
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, flutter]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies, ci]

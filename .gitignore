@@ -1,0 +1,98 @@
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.env
+.venv
+env/
+venv/
+ENV/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ── Models (too large for git — use DVC or model registry) ───────────────
+backend/models/
+*.onnx
+*.pt
+*.bin
+*.safetensors
+
+# ── Secrets ───────────────────────────────────────────────────────────────
+secrets/
+*.pem
+*.key
+*.p12
+service-account*.json
+firebase-service-account.json
+
+# ── Node / Frontend ───────────────────────────────────────────────────────
+node_modules/
+dist/
+.cache/
+frontend/dist/
+flutter/functions/node_modules/
+
+# ── Flutter ───────────────────────────────────────────────────────────────
+flutter/.dart_tool/
+flutter/.flutter-plugins
+flutter/.flutter-plugins-dependencies
+flutter/.packages
+flutter/build/
+flutter/android/.gradle/
+flutter/android/app/google-services.json  # Add your own — do not commit
+flutter/ios/Pods/
+flutter/ios/Runner/GoogleService-Info.plist  # Add your own — do not commit
+flutter/ios/.symlinks/
+*.g.dart
+*.freezed.dart
+
+# ── Docker ────────────────────────────────────────────────────────────────
+.docker/
+
+# ── Kubernetes ────────────────────────────────────────────────────────────
+k8s/secrets.yaml  # Never commit secrets to git
+
+# ── Database / Volumes ────────────────────────────────────────────────────
+postgres_data/
+redis_data/
+*.db
+*.sqlite
+
+# ── IDE ───────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Misc ──────────────────────────────────────────────────────────────────
+.env.local
+.env.production
+*.tar.gz
+*.zip

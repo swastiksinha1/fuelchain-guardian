@@ -1,0 +1,39 @@
+name: pumpcast
+description: FuelChain Guardian — Consumer Fuel Finder App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.1
+  firebase_core: ^2.27.0
+  firebase_auth: ^4.17.8
+  cloud_firestore: ^4.15.8
+  firebase_messaging: ^14.7.19
+  flutter_local_notifications: ^21.0.0
+  flutter_riverpod: ^2.5.1
+  dio: ^5.4.3
+  sqflite: ^2.3.2
+  path_provider: ^2.1.2
+  path: ^1.9.0
+  cupertino_icons: ^1.0.6
+  google_fonts: ^8.1.0
+  percent_indicator: ^4.2.3
+  intl: ^0.19.0
+  geolocator: ^11.0.0
+  permission_handler: ^11.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

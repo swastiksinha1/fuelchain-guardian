@@ -1,0 +1,8 @@
+# NLP / ML
+transformers==4.38.1
+torch==2.2.0+cpu
+onnxruntime==1.17.1
+optimum==1.17.1
+datasets==2.17.0
+scikit-learn==1.4.1
+numpy==1.26.4

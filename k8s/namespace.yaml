@@ -1,0 +1,45 @@
+---
+# namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fuelchain
+  labels:
+    app.kubernetes.io/part-of: fuelchain-guardian
+    environment: production
+
+---
+# configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fuelchain-config
+  namespace: fuelchain
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "redpanda:9092"
+  LOG_LEVEL: "INFO"
+  AIS_MODE: "simulator"
+  SOCIAL_MODE: "simulator"
+  PAYMENT_MODE: "mock"
+  TICK_INTERVAL_SECONDS: "1800"
+  PANIC_THRESHOLD: "65"
+  NLP_SERVICE_URL: "http://panic-nlp:8001"
+
+---
+# secrets.yaml  — EDIT before applying!
+# In production use: kubectl create secret generic fuelchain-secrets \
+#   --from-literal=DATABASE_URL='...' etc.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fuelchain-secrets
+  namespace: fuelchain
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql+asyncpg://fuelchain:changeme@postgres:5432/fuelchain"
+  REDIS_URL: "redis://redis:6379/0"
+  JWT_SECRET: "CHANGE_THIS_TO_RANDOM_256_BIT_SECRET_IN_PRODUCTION"
+  AISHUB_API_KEY: ""
+  TWITTER_BEARER_TOKEN: ""
+  RAZORPAY_KEY_ID: ""
+  RAZORPAY_KEY_SECRET: ""
