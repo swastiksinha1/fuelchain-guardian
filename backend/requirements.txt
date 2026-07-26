@@ -48,5 +48,5 @@ structlog==25.5.0
 
 # Utilities
 python-dotenv==1.2.2
-orjson==3.9.13
+orjson==3.11.9
 tenacity==8.2.3
